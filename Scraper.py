@@ -3,20 +3,53 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import os
 import re
+import signal
 import smtplib
 import sqlite3
+import sys
+import time
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import requests
 
 load_dotenv()
 
-# --- CONFIGURATION ---
-TARGET_URL = os.getenv("TARGET_URL", "https://example.com/target-page")
+# --- .env CONFIGURATION ---
+# Gets the raw URLs and loops through them
+URL_LIST = os.getenv("TARGET_URLS", "https://example.com/target-page")
+TARGET_URLS = [url.strip() for url in URL_LIST.split(",") if url.strip()]
+
+# Configure the sending and receiving email
 SENDER_EMAIL = os.getenv("ALERT_EMAIL", "your_email@gmail.com")
 SENDER_PASSWORD = os.getenv("ALERT_PASSWORD", "your_app_password")
 RECEIVER_EMAIL = os.getenv("ALERT_RECEIVER", "your_email@gmail.com")
 
+CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL", "900"))
+
+RUNNING = True
+
+def shutdown_logic(sig, frame):
+    # Handles the shutdown cleanly
+    global RUNNING
+    print("\nShutting down, finishing tasks to exit!")
+    RUNNING = False
+    print("Interships no longer automatic!")
+
+def is_scraper_enabled():
+    # Allows us to see if active on the dashboard
+    try:
+        conn = sqlite3.connect("internships.db")
+        cursor = conn.cursor()
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        cursor.execute("SELECT value FROM settings WHERE key = 'scraper_status'")
+        row = cursor.fetchone()
+        conn.close()
+        return(row[0] if row else "active") == "active"
+    except Exception:
+        return True
+    
 def parse_posted_date(age_str):
     # Used to convert strings like "2d ago" or "3h ago" into MM-DD-YYYY format
     if not age_str:
@@ -29,14 +62,17 @@ def parse_posted_date(age_str):
     days_match = re.search(r"(\d+)\s*d", age_str)
     if days_match:
         days_ago = int(days_match.group(1))
-        return (today - timedelta(days=days_ago)).strftime("%b-&d-%Y")
+        return (today - timedelta(days=days_ago)).strftime("%b-%d-%Y")
 
     # Count as today if site uses h or m 
     if "h" in age_str or "m" in age_str or "today" in age_str:
         return today.strftime("%b-%d-%Y")
 
     # Return the date if already formatted
-    return age_str if len(age_str) > 0 else today.strftime("%b-%d-%Y")
+    if len(age_str) > 0:
+        return age_str 
+    else: 
+        return today.strftime("%b-%d-%Y")
 
 def init_db():
     """Ensures the SQLite database and schema exist."""
@@ -49,6 +85,8 @@ def init_db():
             title TEXT,
             location TEXT,
             date_added TEXT,
+            link TEXT,
+            source_url TEXT,
             scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -58,12 +96,14 @@ def init_db():
     columns = [col[1] for col in cursor.fetchall()]
     if "link" not in columns:
         cursor.execute("ALTER TABLE job_postings ADD COLUMN link TEXT")
+    if "source_url" not in columns:
+        cursor.execute("ALTER TABLE job_postings ADD COLUMN source_url TEXT")
 
     conn.commit()
     conn.close()
 
 def fetch_postings(url):
-    """Fetches and parses postings from the target URL."""
+    """Fetches and parses postings from one URL."""
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -73,7 +113,7 @@ def fetch_postings(url):
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=12)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -102,11 +142,12 @@ def fetch_postings(url):
                     "location":location,
                     "date_added":formatted_date,
                     "link":apply_link,
+                    "source_url":url,
                 })
 
         return parsed_jobs
     except Exception as e:
-        print(f"Notice: Could not fetch URL directly ({e}).")
+        print(f"Notice: Could not fetch {url}: ({e}).")
         return []
 
 def send_email_alert(new_postings):
@@ -159,14 +200,34 @@ def send_email_alert(new_postings):
     except Exception as e:
         print(f"Failed to send email alert: {e}")
 
-def process_and_notify(scraped_postings):
-    """Deduplicates records against SQLite, saves new entries, and sends alerts."""
+def process_and_notify():
+    # Checks if the automation is enabled
+    if not is_scraper_enabled():
+        print(
+            f"[{datetime.now().strftime('%H:%M:%S')}] " +
+            "The automation is currently paused, skipping checks..."
+        )
+        return
+
+    all_scraped_postings = []
+
+    # Step 1: Gathers posts from all the URLs
+    for url in TARGET_URLS:
+        print(f"Checking: {url}")
+        postings = fetch_postings(url)
+        all_scraped_postings.extend(postings)
+
+    if not all_scraped_postings:
+        print("No postings were found during this run.")
+        return
+
+    # Step 2: Remove duplicates
     conn = sqlite3.connect("internships.db")
     cursor = conn.cursor()
 
     new_postings = []
 
-    for job in scraped_postings:
+    for job in all_scraped_postings:
         # Check if entry already exists
         cursor.execute(
             """
@@ -179,8 +240,8 @@ def process_and_notify(scraped_postings):
         if cursor.fetchone() is None:
             cursor.execute(
                 """
-                        INSERT INTO job_postings (company, title, location, date_added, link)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO job_postings (company, title, location, date_added, link, source_url)
+                        VALUES (?, ?, ?, ?, ?, ?)
                     """,
                 (
                     job["company"],
@@ -188,6 +249,7 @@ def process_and_notify(scraped_postings):
                     job["location"],
                     job["date_added"],
                     job["link"],
+                    job.get("source_url", ""),
                 ),
             )
             new_postings.append(job)
@@ -195,6 +257,7 @@ def process_and_notify(scraped_postings):
     conn.commit()
     conn.close()
 
+    # Step 3: Send an email if theres a new update
     if new_postings:
         print(
             f"Inserted {len(new_postings)} new posting(s). Triggering email..."
@@ -204,38 +267,27 @@ def process_and_notify(scraped_postings):
         print("ℹNo new postings found. Everything is up to date.")
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, shutdown_logic)
+    signal.signal(signal.SIGTERM, shutdown_logic)
+
     init_db()
 
-    # 1. Fetch live web postings
-    postings = fetch_postings(TARGET_URL)
+    print("Starting the automated internship monitor!")
+    print(f"checking {len(TARGET_URLS)} URL(s) every {CHECK_INTERVAL_SECONDS} seconds. \n")
+    print("To stop the program press 'Ctrl + C'.\n")
 
-    # 2. Fallback to mock data for local testing if URL isn't configured
-    if not postings:
-        print("Running in test mode with sample data...")
-        today_str = datetime.now().strftime("%b-%d-%Y")
-        postings = [
-            {
-                "company": "Google",
-                "title": "Software Engineer Intern",
-                "location": "Mountain View, CA",
-                "date_added": today_str,
-                "link": "https://careers.google.com",
-            },
-            {
-                "company": "Microsoft",
-                "title": "Explore Intern",
-                "location": "Redmond, WA",
-                "date_added": today_str,
-                "link": "https://careers.microsoft.com",
-            },
-            {
-                "company": "Apple",
-                "title": "Hardware/SWE Intern",
-                "location": "Cupertino, CA",
-                "date_added": parse_posted_date("2d ago"),
-                "link": "https://www.apple.com/careers/us/work-at-apple/locations.html",
-            },
-        ]
+    # Begin monitoring loop
+    while RUNNING:
+        try:
+            process_and_notify()
+        except Exception as e:
+            print(f"An error occured during execution: {e}")
 
-    # 3. Process postings and trigger notifications
-    process_and_notify(postings)
+        # Interruptable sleep loop
+        for _ in range(CHECK_INTERVAL_SECONDS):
+            if not RUNNING:
+                break
+            time.sleep(1)
+
+    print("Program stopped successfully, automation ending...")
+    sys.exit(0) 

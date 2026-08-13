@@ -5,8 +5,54 @@ import streamlit as st
 
 st.set_page_config(page_title="Internship Tracker & Analytics", layout="wide")
 
-st.title("Software Engineer Internship Tracker & Analytics")
+def get_scraper_status():
+    try:
+        conn = sqlite3.connect("internships.db")
+        cursor = conn.cursor()
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        cursor.execute("SELECT value FROM settings WHERE key = 'scraper_status'")
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else 'active'
+    except Exception:
+        return "active"
 
+def set_scraper_status(status):
+    # Sets to either 'Active' or 'Paused'
+    conn = sqlite3.connect("internships.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
+    )
+    cursor.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('scraper_status', ?)",
+        (status,),
+    )
+    conn.commit()
+    conn.close()
+
+# Sidebar control panel
+st.sidebar.title("Control Panel")
+current_status = get_scraper_status()
+
+if current_status == "active":
+    st.sidebar.success("🟢 Scraper Status: ACTIVE")
+    if st.sidebar.button("Pause notifications"):
+        set_scraper_status("Paused")
+        st.sidebar.warning("Notifications paused!")
+        st.rerun()
+else:
+    st.sidebar.error("🔴 Scraper Status: PAUSED")
+    if st.sidebar.button("Resume notifications"):
+        set_scraper_status("Active")
+        st.sidebar.success("Notifications active!")
+        st.rerun()
+st.sidebar.markdown("---")
+
+# Main dashboard
+st.title("Software Engineer Internship Tracker & Analytics")
 
 # Fetch data from SQLite
 @st.cache_data(ttl=60)
