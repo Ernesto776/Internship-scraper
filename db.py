@@ -22,10 +22,10 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS job_postings (
             id SERIAL PRIMARY KEY,
-            company VARCHAR(255),
-            title VARCHAR(255),
-            location VARCHAR(255),
-            date_added VARCHAR(100),
+            company TEXT,
+            title TEXT,
+            location TEXT,
+            date_added TEXT,
             link TEXT,
             source_url TEXT,
             scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -67,7 +67,7 @@ def set_scraper_status(key, value):
         INSERT INTO settings (key, value) 
         VALUES (%s, %s)
         ON CONFLICT (key)
-        DO UPDATE SET value = EXCLUDE.value;
+        DO UPDATE SET value = EXCLUDED.value;
     """
     cursor.execute(query, (key, str(value)))
 
