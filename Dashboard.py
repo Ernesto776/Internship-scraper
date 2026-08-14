@@ -1,12 +1,29 @@
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import threading
+import time
 from db import get_connection, get_scraper_status, init_db, set_scraper_status
 from Scraper import process_and_notify
 
 st.set_page_config(page_title="Internship Tracker & Analytics", layout="wide")  
 
 init_db()
+
+def run_scraper_loop():
+    # Runs the process_and_notify function every 15 minutes
+    while True:
+        try:
+            process_and_notify()
+        except Exception as e:
+            print(f"Background scraper thread error: {e}")
+        time.sleep(900)
+
+if "scraper_thread_started" not in st.session_state:
+    st.session_state["scraper_thread_started"] = True
+    scraper_thread = threading.Thread(target=run_scraper_loop, daemon=True)
+    scraper_thread.start()
+
 
 # Sidebar control panel using db.py
 st.sidebar.title("Control Panel")
