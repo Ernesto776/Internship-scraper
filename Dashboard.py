@@ -109,6 +109,10 @@ def load_data():
         conn = get_connection()
         df = pd.read_sql_query("SELECT * FROM job_postings", conn)
         conn.close()
+        if not df.empty and "scraped_at" in df.columns:
+            df["scraped_at"] = pd.to_datetime(df["scraped_at"]).df.strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
         return df
     except Exception as e:
         print(f"Error read from PostgreSQL: {e}")
