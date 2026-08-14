@@ -110,7 +110,7 @@ def load_data():
         df = pd.read_sql_query("SELECT * FROM job_postings", conn)
         conn.close()
         if not df.empty and "scraped_at" in df.columns:
-            df["scraped_at"] = pd.to_datetime(df["scraped_at"]).df.strftime(
+            df["scraped_at"] = pd.to_datetime(df["scraped_at"]).dt.strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
         return df
