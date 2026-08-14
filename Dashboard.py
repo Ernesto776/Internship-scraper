@@ -1,54 +1,63 @@
-import sqlite3
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from db import get_connection, get_scraper_status, init_db, set_scraper_status
+from Scraper import process_and_notify
 
-st.set_page_config(page_title="Internship Tracker & Analytics", layout="wide")
+st.set_page_config(page_title="Internship Tracker & Analytics", layout="wide")  
 
-def get_scraper_status():
-    try:
-        conn = sqlite3.connect("internships.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
-        )
-        cursor.execute("SELECT value FROM settings WHERE key = 'scraper_status'")
-        row = cursor.fetchone()
-        conn.close()
-        return row[0] if row else 'active'
-    except Exception:
-        return "active"
+init_db()
 
-def set_scraper_status(status):
-    # Sets to either 'Active' or 'Paused'
-    conn = sqlite3.connect("internships.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
-    )
-    cursor.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('scraper_status', ?)",
-        (status,),
-    )
-    conn.commit()
-    conn.close()
-
-# Sidebar control panel
+# Sidebar control panel using db.py
 st.sidebar.title("Control Panel")
-current_status = get_scraper_status()
+current_status = get_scraper_status("scraper_status", "active")
+is_active = current_status == "active"
 
-if current_status == "active":
-    st.sidebar.success("🟢 Scraper Status: ACTIVE")
-    if st.sidebar.button("Pause notifications"):
-        set_scraper_status("Paused")
-        st.sidebar.warning("Notifications paused!")
+st.sidebar.markdown(
+    f"**Status:** {'🟢 ACTIVE' if is_active else '🔴 PAUSED'}"
+)
+if st.sidebar.button("Pause Notifications" if is_active else "Resume Scraper"):
+    new_status = "paused" if is_active else "active"
+    set_scraper_status("scraper_status", new_status)
+    st.sidebar.info(f"Status changed to {new_status.upper()}!")
+    st.rerun()
+
+st.sidebar.markdown("---")
+
+# Adds UI control to allow users to update information
+with st.sidebar.expander("Settings & Configurations", expanded=True):
+    # Update information, placeholder info added
+    current_urls = get_scraper_status("target_urls", "")
+    current_email = get_scraper_status("receiver_email", "")
+
+    updated_urls = st.text_area(
+        "Target URLs (One link per line):",
+        value=current_urls,
+        placeholder="https://example.com/target-page",
+        height=120,
+        help="Paste internship URLs here."
+    )
+
+    updated_email = st.text_input(
+        "Alert reciever email",
+        value=current_email,
+        placeholder="your_email@example.com",
+        help="Input email that will be alerted here."
+    )
+
+    if st.button("💾 Save Settings"):
+        set_scraper_status("target_urls", updated_urls.strip())
+        set_scraper_status("receiver_email", updated_email.strip())
+        st.success("Settings updated successfully! Implementation will begin on the next run!")
         st.rerun()
-else:
-    st.sidebar.error("🔴 Scraper Status: PAUSED")
-    if st.sidebar.button("Resume notifications"):
-        set_scraper_status("Active")
-        st.sidebar.success("Notifications active!")
-        st.rerun()
+
+    if st.sidebar.button("🔄 Run Scraping Check Now"):
+        with st.spinner("Scrapping the inserted URLs..."):
+            process_and_notify()
+            st.cache_data.clear()
+            st.sidebar.success("Check completed! Dashboard refreshed.")
+            st.rerun()
+
 st.sidebar.markdown("---")
 
 # Main dashboard
@@ -58,7 +67,7 @@ st.title("Software Engineer Internship Tracker & Analytics")
 @st.cache_data(ttl=60)
 def load_data():
     try:
-        conn = sqlite3.connect("internships.db")
+        conn = get_connection()
         df = pd.read_sql_query("SELECT * FROM job_postings", conn)
         conn.close()
         return df

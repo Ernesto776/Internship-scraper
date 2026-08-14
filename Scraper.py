@@ -1,20 +1,20 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import os
-import re
 import signal
 import smtplib
 import sqlite3
 import sys
 import time
 from bs4 import BeautifulSoup
+from db import get_connection, get_scraper_status, init_db, parse_posted_date
 from dotenv import load_dotenv
 import requests
 
 load_dotenv()
 
-# --- .env CONFIGURATION ---
+# --- .env FALLBACK CONFIGURATION ---
 # Gets the raw URLs and loops through them
 URL_LIST = os.getenv("TARGET_URLS", "https://example.com/target-page")
 TARGET_URLS = [url.strip() for url in URL_LIST.split(",") if url.strip()]
@@ -36,71 +36,7 @@ def shutdown_logic(sig, frame):
     print("Interships no longer automatic!")
 
 def is_scraper_enabled():
-    # Allows us to see if active on the dashboard
-    try:
-        conn = sqlite3.connect("internships.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
-        )
-        cursor.execute("SELECT value FROM settings WHERE key = 'scraper_status'")
-        row = cursor.fetchone()
-        conn.close()
-        return(row[0] if row else "active") == "active"
-    except Exception:
-        return True
-    
-def parse_posted_date(age_str):
-    # Used to convert strings like "2d ago" or "3h ago" into MM-DD-YYYY format
-    if not age_str:
-        return datetime.now().strftime("%b-%d-%Y")
-
-    age_str = age_str.lower().strip()
-    today = datetime.now()
-
-    # Match days to date (2d, 10d, etc.)
-    days_match = re.search(r"(\d+)\s*d", age_str)
-    if days_match:
-        days_ago = int(days_match.group(1))
-        return (today - timedelta(days=days_ago)).strftime("%b-%d-%Y")
-
-    # Count as today if site uses h or m 
-    if "h" in age_str or "m" in age_str or "today" in age_str:
-        return today.strftime("%b-%d-%Y")
-
-    # Return the date if already formatted
-    if len(age_str) > 0:
-        return age_str 
-    else: 
-        return today.strftime("%b-%d-%Y")
-
-def init_db():
-    """Ensures the SQLite database and schema exist."""
-    conn = sqlite3.connect("internships.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS job_postings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company TEXT,
-            title TEXT,
-            location TEXT,
-            date_added TEXT,
-            link TEXT,
-            source_url TEXT,
-            scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-    # Ensures that the link exists since the program ran previously
-    cursor.execute("PRAGMA table_info(job_postings)")
-    columns = [col[1] for col in cursor.fetchall()]
-    if "link" not in columns:
-        cursor.execute("ALTER TABLE job_postings ADD COLUMN link TEXT")
-    if "source_url" not in columns:
-        cursor.execute("ALTER TABLE job_postings ADD COLUMN source_url TEXT")
-
-    conn.commit()
-    conn.close()
+    return get_scraper_status("scraper_status", "active") == "active"
 
 def fetch_postings(url):
     """Fetches and parses postings from one URL."""
@@ -124,24 +60,14 @@ def fetch_postings(url):
         for row in rows:
             cols = row.find_all("td")
             if len(cols) >= 4:
-                company = cols[0].get_text(strip=True)
-                title = cols[1].get_text(strip=True)
-                location = cols[2].get_text(strip=True)
-                raw_date = cols[3].get_text(strip=True)
-
-                # Parse the age to the date
-                formatted_date = parse_posted_date(raw_date)
-
                 # Extract the application link
                 link_tag = row.find("a", href=True)
-                apply_link = link_tag["href"] if link_tag else "#"
-
                 parsed_jobs.append({
-                    "company":company,
-                    "title":title,
-                    "location":location,
-                    "date_added":formatted_date,
-                    "link":apply_link,
+                    "company": cols[0].get_text(strip=True),
+                    "title": cols[1].get_text(strip=True),
+                    "location": cols[2].get_text(strip=True),
+                    "date_added": parse_posted_date(cols[3].get_text(strip=True)),
+                    "link": link_tag["href"]if link_tag else "#",
                     "source_url":url,
                 })
 
@@ -150,12 +76,33 @@ def fetch_postings(url):
         print(f"Notice: Could not fetch {url}: ({e}).")
         return []
 
-def send_email_alert(new_postings):
+def send_email_alert(new_postings, recipient=None):
     """Sends an HTML formatted email summary of newly added job postings."""
     if not new_postings:
         return
 
+    target_recipient = recipient if recipient else RECEIVER_EMAIL
     subject = f"{len(new_postings)} New Internship Postings Detected!"
+
+    html_rows = "".join([
+        f""" 
+            <tr>
+                <td><b>{job['company']}</b></td>
+                <td>{job['title']}</td>
+                <td>{job['location']}</td>
+                <td>{job['date_added']}</td>
+                <td style="text-align: center;">
+                    <a href="{job['link']}" target="_blank"
+                        style="background-color: #2a8a5e; color:white; padding: 6px 12px;"
+                        " text-decoration: none; border-radius: 4px; font-weight: bold; "
+                        "display: inline-block;">
+                        Apply now
+                    </a>
+                </td>
+            </tr>
+            """
+        for job in new_postings
+    ])
 
     html_content = f"""
         <h2>New Internship Postings Added:</h2>
@@ -167,36 +114,22 @@ def send_email_alert(new_postings):
                 <th>Date Added</th>
                 <th>Action</th>
             </tr>
+            {html_rows}
+        </table>
         """
-    for job in new_postings:
-        html_content += f"""
-            <tr>
-                <td><b>{job['company']}</b></td>
-                <td>{job['title']}</td>
-                <td>{job['location']}</td>
-                <td>{job['date_added']}</td>
-                <td style="text-align: center;">
-                    <a href="{job['link']}" target="_blank"
-                        style="background-color: #2a8a5e; color:white; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;">
-                        Apply now
-                    </a>
-                </td>
-            </tr>
-            """
-    html_content += "</table>"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = SENDER_EMAIL
-    msg["To"] = RECEIVER_EMAIL
+    msg["To"] = target_recipient
     msg.attach(MIMEText(html_content, "html"))
 
     try:
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
-        print(f"Alert email successfully sent to {RECEIVER_EMAIL}")
+            server.sendmail(SENDER_EMAIL, target_recipient, msg.as_string())
+        print(f"Alert email successfully sent to {target_recipient}")
     except Exception as e:
         print(f"Failed to send email alert: {e}")
 
@@ -209,22 +142,26 @@ def process_and_notify():
         )
         return
 
+    raw_urls = get_scraper_status("target_urls", URL_LIST)
+    target_urls = [
+        url.strip() for url in raw_urls.replace("\n", ",").split(",") if url.strip()
+    ]
+    receiver_email = get_scraper_status("receiver_email", RECEIVER_EMAIL)
+
     all_scraped_postings = []
 
     # Step 1: Gathers posts from all the URLs
-    for url in TARGET_URLS:
+    for url in target_urls:
         print(f"Checking: {url}")
-        postings = fetch_postings(url)
-        all_scraped_postings.extend(postings)
+        all_scraped_postings.extend(fetch_postings(url))
 
     if not all_scraped_postings:
         print("No postings were found during this run.")
         return
 
     # Step 2: Remove duplicates
-    conn = sqlite3.connect("internships.db")
+    conn = get_connection()
     cursor = conn.cursor()
-
     new_postings = []
 
     for job in all_scraped_postings:
@@ -262,7 +199,7 @@ def process_and_notify():
         print(
             f"Inserted {len(new_postings)} new posting(s). Triggering email..."
         )
-        send_email_alert(new_postings)
+        send_email_alert(new_postings, recipient=receiver_email)
     else:
         print("ℹNo new postings found. Everything is up to date.")
 
