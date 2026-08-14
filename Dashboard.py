@@ -41,7 +41,7 @@ if "scraper_thread_started" not in st.session_state:
         with st.spinner(
             "First boot detected! Initializing database with Internships!"
         ):
-            process_and_notify()            
+            process_and_notify()          
 
     # Then it checks every 15 minutes, 24/7
     scraper_thread = threading.Thread(target=run_scraper_loop, daemon=True)
