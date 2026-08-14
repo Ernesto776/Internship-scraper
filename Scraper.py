@@ -4,7 +4,6 @@ from email.mime.text import MIMEText
 import os
 import signal
 import smtplib
-import sqlite3
 import sys
 import time
 from bs4 import BeautifulSoup
@@ -169,7 +168,7 @@ def process_and_notify():
         cursor.execute(
             """
                 SELECT id FROM job_postings 
-                WHERE company = ? AND title = ? AND location = ?
+                WHERE company = %s AND title = %s AND location = %s;
             """,
             (job["company"], job["title"], job["location"]),
         )
@@ -178,7 +177,7 @@ def process_and_notify():
             cursor.execute(
                 """
                         INSERT INTO job_postings (company, title, location, date_added, link, source_url)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                     """,
                 (
                     job["company"],
@@ -192,6 +191,7 @@ def process_and_notify():
             new_postings.append(job)
 
     conn.commit()
+    cursor.close()
     conn.close()
 
     # Step 3: Send an email if theres a new update

@@ -1,24 +1,31 @@
 from datetime import datetime, timedelta
+import os
 import re
-import sqlite3
+from dotenv import load_dotenv
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-DB_NAME = "internships.db"
+load_dotenv()
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/internships"
+)
 
 def get_connection():
-    return sqlite3.connect(DB_NAME)
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
-    # The central scheme initialization
+    # The central scheme initialization for PostgreSQL
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS job_postings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company TEXT,
-            title TEXT,
-            location TEXT,
-            date_added TEXT,
+            id SERIAL PRIMARY KEY,
+            company VARCHAR(255),
+            title VARCHAR(255),
+            location VARCHAR(255),
+            date_added VARCHAR(100),
             link TEXT,
             source_url TEXT,
             scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -28,20 +35,20 @@ def init_db():
     # Stores Key-Value
     cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
+                key VARCHAR(255) PRIMARY KEY,
                 value TEXT
             )
         """)
 
     # Ensures that the link exists since the program ran previously
-    cursor.execute("PRAGMA table_info(job_postings)")
-    columns = [col[1] for col in cursor.fetchall()]
-    if "link" not in columns:
-        cursor.execute("ALTER TABLE job_postings ADD COLUMN link TEXT")
-    if "source_url" not in columns:
-        cursor.execute("ALTER TABLE job_postings ADD COLUMN source_url TEXT")
-
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings(
+            key VARCHAR(255) PRIMARY KEY,
+            value TEXT
+        );
+    """)
     conn.commit()
+    cursor.close()
     conn.close()
 
 # Changed to allow  status, URLs, and emails to come from db 
@@ -49,23 +56,31 @@ def get_scraper_status(key, default_value=""):
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        cursor.execute("SELECT value FROM settings WHERE key = %s", (key,))
         row = cursor.fetchone()
+        cursor.close()
         conn.close()
         return row[0] if (row and row [0] is not None) else default_value
-    except Exception:
+    except Exception as e:
+        print(f"Database read notice for '{key}': {e}")
         return default_value
 
 def set_scraper_status(key, value):
     # Saves and updates based on the key and value pair
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (key,str(value)),
-    )
+    query = """
+        INSERT INTO settings (key, value) 
+        VALUES (%s, %s)
+        ON CONFLICT (key)
+        DO UPDATE SET value = EXCLUDE.value;
+    """
+    cursor.execute(query, (key, str(value)))
+
     conn.commit()
+    cursor.close()
     conn.close()
+
 
 def parse_posted_date(age_str):
     # Used to convert strings like "2d ago" or "3h ago" into MM-DD-YYYY format

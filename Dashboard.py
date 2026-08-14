@@ -63,7 +63,7 @@ st.sidebar.markdown("---")
 # Main dashboard
 st.title("Software Engineer Internship Tracker & Analytics")
 
-# Fetch data from SQLite
+# Fetch data from PostgreSQL
 @st.cache_data(ttl=60)
 def load_data():
     try:
@@ -71,8 +71,8 @@ def load_data():
         df = pd.read_sql_query("SELECT * FROM job_postings", conn)
         conn.close()
         return df
-    except Exception:
-        # Return empty DataFrame with expected schema if DB doesn't exist yet
+    except Exception as e:
+        print(f"Error read from PostgreSQL: {e}")
         return pd.DataFrame(
             columns=[
                 "id",
@@ -115,7 +115,7 @@ try:
                 ),
                 "date_added": st.column_config.TextColumn("Date Posted"),
             },
-            use_container_width=True
+            width="stretch"
         )
 
         # Analytics Section
@@ -132,7 +132,7 @@ try:
                 y="Openings",
                 title="Top Companies by Openings",
             )
-            st.plotly_chart(fig1, use_container_width=True)
+            st.plotly_chart(fig1, width="stretch")
 
         with col_right:
             # Chart 2: Top Locations
@@ -144,7 +144,7 @@ try:
                 values="Count",
                 title="Geographic Distribution",
             )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
     else:
         st.info(
             "No internship postings found in the database yet. Run"
