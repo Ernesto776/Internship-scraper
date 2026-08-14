@@ -10,6 +10,20 @@ st.set_page_config(page_title="Internship Tracker & Analytics", layout="wide")
 
 init_db()
 
+def is_db_empty():
+    # Returns true if Database empty
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM job_postings;")
+        count = cursor.fetchone()[0]
+        cursor.close()
+        conn.close()
+        return count == 0   
+    except Exception as e:
+        print(f"Error checking DB row count: {e}")
+        return True
+
 def run_scraper_loop():
     # Runs the process_and_notify function every 15 minutes
     while True:
@@ -21,9 +35,17 @@ def run_scraper_loop():
 
 if "scraper_thread_started" not in st.session_state:
     st.session_state["scraper_thread_started"] = True
+
+    # Checks if empty on a cold boot
+    if is_db_empty():
+        with st.spinner(
+            "First boot detected! Initializing database with Internships!"
+        ):
+            process_and_notify()            
+
+    # Then it checks every 15 minutes, 24/7
     scraper_thread = threading.Thread(target=run_scraper_loop, daemon=True)
     scraper_thread.start()
-
 
 # Sidebar control panel using db.py
 st.sidebar.title("Control Panel")

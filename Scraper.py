@@ -177,7 +177,7 @@ def process_and_notify():
             cursor.execute(
                 """
                         INSERT INTO job_postings (company, title, location, date_added, link, source_url)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s);
                     """,
                 (
                     job["company"],

@@ -29,24 +29,17 @@ def init_db():
             link TEXT,
             source_url TEXT,
             scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
+            );
         """)
 
     # Stores Key-Value
-    cursor.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key VARCHAR(255) PRIMARY KEY,
-                value TEXT
-            )
-        """)
-
-    # Ensures that the link exists since the program ran previously
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings(
             key VARCHAR(255) PRIMARY KEY,
             value TEXT
         );
     """)
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -56,7 +49,7 @@ def get_scraper_status(key, default_value=""):
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = %s", (key,))
+        cursor.execute("SELECT value FROM settings WHERE key = %s;", (key,))
         row = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -69,6 +62,7 @@ def set_scraper_status(key, value):
     # Saves and updates based on the key and value pair
     conn = get_connection()
     cursor = conn.cursor()
+    
     query = """
         INSERT INTO settings (key, value) 
         VALUES (%s, %s)
