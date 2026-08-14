@@ -7,9 +7,9 @@ from psycopg2.extras import RealDictCursor
 
 load_dotenv()
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/internships"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL IS MISSING")
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
@@ -62,7 +62,7 @@ def set_scraper_status(key, value):
     # Saves and updates based on the key and value pair
     conn = get_connection()
     cursor = conn.cursor()
-    
+
     query = """
         INSERT INTO settings (key, value) 
         VALUES (%s, %s)
