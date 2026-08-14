@@ -4,4 +4,4 @@ plotly
 requests
 beautifulsoup4
 python-dotenv
-psycog2-binary
+psycopg2-binary
