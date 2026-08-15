@@ -7,9 +7,9 @@ from psycopg2.extras import RealDictCursor
 
 load_dotenv()
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/internships"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL IS MISSING")
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
@@ -22,31 +22,24 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS job_postings (
             id SERIAL PRIMARY KEY,
-            company VARCHAR(255),
-            title VARCHAR(255),
-            location VARCHAR(255),
-            date_added VARCHAR(100),
+            company TEXT,
+            title TEXT,
+            location TEXT,
+            date_added TEXT,
             link TEXT,
             source_url TEXT,
             scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
+            );
         """)
 
     # Stores Key-Value
-    cursor.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key VARCHAR(255) PRIMARY KEY,
-                value TEXT
-            )
-        """)
-
-    # Ensures that the link exists since the program ran previously
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings(
             key VARCHAR(255) PRIMARY KEY,
             value TEXT
         );
     """)
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -56,7 +49,7 @@ def get_scraper_status(key, default_value=""):
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = %s", (key,))
+        cursor.execute("SELECT value FROM settings WHERE key = %s;", (key,))
         row = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -69,11 +62,12 @@ def set_scraper_status(key, value):
     # Saves and updates based on the key and value pair
     conn = get_connection()
     cursor = conn.cursor()
+
     query = """
         INSERT INTO settings (key, value) 
         VALUES (%s, %s)
         ON CONFLICT (key)
-        DO UPDATE SET value = EXCLUDE.value;
+        DO UPDATE SET value = EXCLUDED.value;
     """
     cursor.execute(query, (key, str(value)))
 

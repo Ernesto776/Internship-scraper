@@ -4,8 +4,6 @@ from email.mime.text import MIMEText
 import os
 import signal
 import smtplib
-import sys
-import time
 from bs4 import BeautifulSoup
 from db import get_connection, get_scraper_status, init_db, parse_posted_date
 from dotenv import load_dotenv
@@ -177,7 +175,7 @@ def process_and_notify():
             cursor.execute(
                 """
                         INSERT INTO job_postings (company, title, location, date_added, link, source_url)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s);
                     """,
                 (
                     job["company"],
@@ -208,23 +206,9 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, shutdown_logic)
 
     init_db()
-
     print("Starting the automated internship monitor!")
-    print(f"checking {len(TARGET_URLS)} URL(s) every {CHECK_INTERVAL_SECONDS} seconds. \n")
-    print("To stop the program press 'Ctrl + C'.\n")
 
-    # Begin monitoring loop
+    # Begin Shows running
     while RUNNING:
-        try:
-            process_and_notify()
-        except Exception as e:
-            print(f"An error occured during execution: {e}")
-
-        # Interruptable sleep loop
-        for _ in range(CHECK_INTERVAL_SECONDS):
-            if not RUNNING:
-                break
-            time.sleep(1)
-
+        process_and_notify()
     print("Program stopped successfully, automation ending...")
-    sys.exit(0) 

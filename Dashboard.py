@@ -1,3 +1,4 @@
+import warnings
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -7,6 +8,30 @@ from Scraper import process_and_notify
 st.set_page_config(page_title="Internship Tracker & Analytics", layout="wide")  
 
 init_db()
+
+def is_db_empty():
+    # Returns true if Database empty
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM job_postings;")
+        count = cursor.fetchone()[0]
+        cursor.close()
+        conn.close()
+        return count == 0   
+    except Exception as e:
+        print(f"Error checking DB row count: {e}")
+        return True
+
+if "scraper_thread_started" not in st.session_state:
+    st.session_state["scraper_thread_started"] = True
+
+    # Checks if empty on a cold boot
+    if is_db_empty():
+        with st.spinner(
+            "First boot detected! Initializing database with Internships!"
+        ):
+            process_and_notify()          
 
 # Sidebar control panel using db.py
 st.sidebar.title("Control Panel")
@@ -68,8 +93,15 @@ st.title("Software Engineer Internship Tracker & Analytics")
 def load_data():
     try:
         conn = get_connection()
-        df = pd.read_sql_query("SELECT * FROM job_postings", conn)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            df = pd.read_sql_query("SELECT * FROM job_postings", conn)
         conn.close()
+
+        if not df.empty and "scraped_at" in df.columns:
+            df["scraped_at"] = pd.to_datetime(df["scraped_at"]).dt.strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
         return df
     except Exception as e:
         print(f"Error read from PostgreSQL: {e}")
@@ -92,10 +124,12 @@ try:
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Roles Tracked", len(df))
     col2.metric("Unique Companies", df["company"].nunique() if not df.empty else 0)
-    col3.metric(
-        "Latest Update",
-        df["scraped_at"].max() if not df.empty and "scraped_at" in df else "N/A",
+    latest_update = (
+        str(df["scraped_at"].max())
+        if(not df.empty and "scraped_at" in df.columns)
+        else "N/A"
     )
+    col3.metric("Latest Update", latest_update)
 
     st.markdown("---")
 
@@ -146,10 +180,7 @@ try:
             )
             st.plotly_chart(fig2, width="stretch")
     else:
-        st.info(
-            "No internship postings found in the database yet. Run"
-            " `scraper.py` to populate records!"
-        )
+        st.info("No internship postings found in the database yet!")
 
 except Exception as e:
     st.error(f"Error loading dashboard: {e}")
