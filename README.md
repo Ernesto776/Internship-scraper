@@ -30,7 +30,7 @@ An automated, full-stack monitoring system that scrapes internship postings or o
 
 Create a `.env` file in the project root directory with the following configuration:
 
-```env
+`.env`
 DATABASE_URL=postgresql://user:password@host:port/dbname?sslmode=require
 ALERT_EMAIL=your_sender_email@gmail.com
 ALERT_PASSWORD=your_gmail_app_password
