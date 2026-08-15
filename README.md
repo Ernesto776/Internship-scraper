@@ -31,11 +31,11 @@ An automated, full-stack monitoring system that scrapes internship postings or o
 Create a `.env` file in the project root directory with the following configuration:
 
 `.env`
-DATABASE_URL=postgresql://user:password@host:port/dbname?sslmode=require
-ALERT_EMAIL=your_sender_email@gmail.com
-ALERT_PASSWORD=your_gmail_app_password
-ALERT_RECEIVER=your_recipient_email@example.com
-TARGET_URLS=[https://example.com/job-board-1,https://example.com/job-board-2](https://example.com/job-board-1,https://example.com/job-board-2)
+- DATABASE_URL=postgresql://user:password@host:port/dbname?sslmode=require
+- ALERT_EMAIL=your_sender_email@gmail.com
+- ALERT_PASSWORD=your_gmail_app_password
+- ALERT_RECEIVER=your_recipient_email@example.com
+- TARGET_URLS=[https://example.com/job-board-1,https://example.com/job-board-2](https://example.com/job-board-1,https://example.com/job-board-2)
 
 ---
 
