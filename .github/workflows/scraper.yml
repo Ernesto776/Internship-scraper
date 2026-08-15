@@ -1,6 +1,9 @@
 name: Automated Internship Scraper
 
 on:
+  push:
+    branches:
+      - Postgres-fix
   schedule:
     # Runs every 15 minutes automatically
     - cron: '*/15 * * * *'
