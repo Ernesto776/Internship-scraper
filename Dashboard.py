@@ -64,7 +64,7 @@ with st.sidebar.expander("Settings & Configurations", expanded=True):
     )
 
     updated_email = st.text_input(
-        "Alert reciever email",
+        "Alert receiver email",
         value=current_email,
         placeholder="your_email@example.com",
         help="Input email that will be alerted here."
