@@ -23,15 +23,6 @@ RECEIVER_EMAIL = os.getenv("ALERT_RECEIVER", "your_email@gmail.com")
 
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL", "900"))
 
-RUNNING = True
-
-def shutdown_logic(sig, frame):
-    # Handles the shutdown cleanly
-    global RUNNING
-    print("\nShutting down, finishing tasks to exit!")
-    RUNNING = False
-    print("Interships no longer automatic!")
-
 def is_scraper_enabled():
     return get_scraper_status("scraper_status", "active") == "active"
 
@@ -202,13 +193,6 @@ def process_and_notify():
         print("ℹNo new postings found. Everything is up to date.")
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, shutdown_logic)
-    signal.signal(signal.SIGTERM, shutdown_logic)
-
     init_db()
+    process_and_notify()
     print("Starting the automated internship monitor!")
-
-    # Begin Shows running
-    while RUNNING:
-        process_and_notify()
-    print("Program stopped successfully, automation ending...")
